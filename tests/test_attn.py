@@ -29,8 +29,8 @@ def test_fifth_order():
 
     fifth_order_attended = nth_order_attend(
         q,
-        [k, k, k, k, k],
-        [v, v, v, v, v]
+        [k, k, k, k],
+        [v, v, v, v]
     )
 
     assert fifth_order_attended.shape == q.shape
