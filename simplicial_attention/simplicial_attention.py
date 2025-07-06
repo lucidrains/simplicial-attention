@@ -6,6 +6,9 @@ from opt_einsum import contract
 
 # functions
 
+def divisible_by(num, den):
+    return (num % den) == 0
+
 def join(arr, delimiter = ', '):
     return delimiter.join(arr)
 
@@ -20,13 +23,22 @@ def naive_two_simplicial_attend(
     causal = False
 ): # b h i dv
 
-    seq_len, dim, device = *q.shape[-2:], q.device
+    heads, seq_len, dim, kv_heads, device = *q.shape[1:], k1.shape[1], q.device
+
+    assert divisible_by(heads, kv_heads)
+
+    # handle gqa
+
+    groups = heads // kv_heads
+    q = rearrange(q, 'b (h g) i d -> b h g i d', g = groups)
+
+    # variables
 
     scale = dim ** -0.5
 
     q = q * scale
 
-    sim = contract('... i d, ... j d, ... k d -> ... i j k', q, k1, k2)
+    sim = contract('... g i d, ... j d, ... k d -> ... g i j k', q, k1, k2)
 
     if causal:
         i, j = sim.shape[-2:]
@@ -34,15 +46,15 @@ def naive_two_simplicial_attend(
         causal_mask = causal_mask[..., :, None] | causal_mask[..., None, :]
         sim = sim.masked_fill(causal_mask, -torch.finfo(sim.dtype).max)
 
-    packed_sim, packed_shape = pack((sim,), 'b h i *')
+    packed_sim, packed_shape = pack((sim,), 'b h g i *')
 
     packed_attn = packed_sim.softmax(dim = -1)
 
-    attn, = unpack(packed_attn, packed_shape, 'b h i *')
+    attn, = unpack(packed_attn, packed_shape, 'b h g i *')
 
-    out = contract('... i j k, ... j d, ... k d -> ... i d', attn, v1, v2)
+    out = contract('... g i j k, ... j d, ... k d -> ... g i d', attn, v1, v2)
 
-    return out
+    return rearrange(out, 'b h g ... -> b (h g) ...')
 
 # n-th order attention, for good measure
 
