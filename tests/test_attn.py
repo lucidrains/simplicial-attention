@@ -1,7 +1,8 @@
 import pytest
 import torch
 
-def test_attn():
+@pytest.mark.parametrize('causal', (False, True))
+def test_attn(causal):
     from simplicial_attention.simplicial_attention import naive_two_simplicial_attend
 
     q = torch.randn(1, 8, 32, 16)
@@ -13,7 +14,8 @@ def test_attn():
         k,
         k.clone(),
         v,
-        v.clone()
+        v.clone(),
+        causal = causal
     )
 
     assert attended.shape == q.shape
