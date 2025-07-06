@@ -16,14 +16,23 @@ def naive_two_simplicial_attend(
     k1, # b h j d
     k2, # b h k d
     v1, # b h j dv
-    v2  # b h k dv
+    v2, # b h k dv,
+    causal = False
 ): # b h i dv
 
-    scale = q.shape[-1] ** -0.5
+    seq_len, dim, device = *q.shape[-2:], q.device
+
+    scale = dim ** -0.5
 
     q = q * scale
 
     sim = contract('... i d, ... j d, ... k d -> ... i j k', q, k1, k2)
+
+    if causal:
+        i, j = sim.shape[-2:]
+        causal_mask = torch.ones(i, j, device = device, dtype = torch.bool).triu(j - i + 1)
+        causal_mask = causal_mask[..., :, None] | causal_mask[..., None, :]
+        sim = sim.masked_fill(causal_mask, -torch.finfo(sim.dtype).max)
 
     packed_sim, packed_shape = pack((sim,), 'b h i *')
 
