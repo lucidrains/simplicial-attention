@@ -1,3 +1,5 @@
+<img src="./fig2.png" width="400px"></img>
+
 ## Simplicial Attention - (wip)
 
 Implementation of [2-simplicial attention](https://arxiv.org/abs/1909.00668) proposed by Clift et al. (2019) and the recent attempt to make practical in [Fast and Simplex](https://arxiv.org/abs/2507.02754), Roy et al. (2025)
