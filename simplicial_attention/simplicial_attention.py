@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import torch
-from torch import nn
+from torch import nn, Tensor
 
 from einops import einsum, rearrange, pack, unpack
 from opt_einsum import contract
@@ -59,13 +61,22 @@ def naive_two_simplicial_attend(
 # n-th order attention, for good measure
 
 def nth_order_attend(
-    q,     # b h i d
-    keys,  # list[b h jkl... d]
-    values # list[b h jkl... dv]
+    q,                   # b h i d
+    keys: list[Tensor],  # list[b h jkl... d]
+    values: list[Tensor] # list[b h jkl... dv]
 ):  # b h i dv 
 
     assert len(keys) == len(values)
     n = len(keys)
+
+    heads, seq_len, dim, kv_heads, device = *q.shape[1:], keys[0].shape[1], q.device
+
+    assert divisible_by(heads, kv_heads)
+
+    # handle gqa
+
+    groups = heads // kv_heads
+    q = rearrange(q, 'b (h g) i d -> b h g i d', g = groups)
 
     scale = q.shape[-1] * -0.5
 
@@ -81,20 +92,20 @@ def nth_order_attend(
 
     similarity_rhs_eq = join([chr(i) for i in ord_indices],  ' ')
 
-    similarity_ein_equation = f'... i d, {similarity_lfs_eq} -> ... i {similarity_rhs_eq}'
+    similarity_ein_equation = f'... g i d, {similarity_lfs_eq} -> ... g i {similarity_rhs_eq}'
 
-    aggregate_ein_equation = f'... i {similarity_rhs_eq}, {similarity_lfs_eq} -> ... i d'
+    aggregate_ein_equation = f'... g i {similarity_rhs_eq}, {similarity_lfs_eq} -> ... g i d'
 
     # nth order attention
 
     sim = einsum(q, *keys, similarity_ein_equation)
 
-    packed_sim, packed_shape = pack((sim,), 'b h i *')
+    packed_sim, packed_shape = pack((sim,), 'b h g i *')
 
     packed_attn = packed_sim.softmax(dim = -1)
 
-    attn, = unpack(packed_attn, packed_shape, 'b h i *')
+    attn, = unpack(packed_attn, packed_shape, 'b h g i *')
 
     out = einsum(attn, *values, aggregate_ein_equation)
 
-    return out
+    return rearrange(out, 'b h g ... -> b (h g) ...')
