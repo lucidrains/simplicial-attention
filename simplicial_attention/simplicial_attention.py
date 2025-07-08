@@ -47,6 +47,8 @@ def naive_two_simplicial_attend(
 
     if causal:
         i, j = sim.shape[-2:]
+        assert i == j
+
         causal_mask = torch.ones(i, j, device = device, dtype = torch.bool).triu(j - i + 1)
         causal_mask = causal_mask[..., :, None] | causal_mask[..., None, :]
         sim = sim.masked_fill(causal_mask, -torch.finfo(sim.dtype).max)
@@ -64,9 +66,10 @@ def naive_two_simplicial_attend(
 # n-th order attention, for good measure
 
 def nth_order_attend(
-    q: Tensor,                 # b h i d
-    keys: tuple[Tensor, ...],  # tuple[b h jkl... d]
-    values: tuple[Tensor, ...] # tuple[b h jkl... dv]
+    q: Tensor,                  # b h i d
+    keys: tuple[Tensor, ...],   # tuple[b h jkl... d]
+    values: tuple[Tensor, ...], # tuple[b h jkl... dv]
+    causal = False
 ):  # b h i dv 
 
     assert len(keys) == len(values)
@@ -103,11 +106,29 @@ def nth_order_attend(
 
     sim = contract(similarity_ein_equation, q, *keys)
 
+    # maybe causal
+
+    if causal:
+        seq_len = sim.shape[-1]
+        one_mask = torch.ones((seq_len, seq_len), device = device, dtype = torch.bool).triu(1)
+
+        causal_mask = one_mask
+
+        for _ in range(n - 1):
+            one_mask = one_mask[..., None, :]
+            causal_mask = causal_mask[..., :, None] | one_mask
+
+        sim = sim.masked_fill(causal_mask, -torch.finfo(sim.dtype).max)
+
+    # attention
+
     packed_sim, packed_shape = pack((sim,), 'b h g i *')
 
     packed_attn = packed_sim.softmax(dim = -1)
 
     attn, = unpack(packed_attn, packed_shape, 'b h g i *')
+
+    # aggregate out
 
     out = contract(aggregate_ein_equation, attn, *values)
 

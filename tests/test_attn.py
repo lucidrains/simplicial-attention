@@ -33,15 +33,16 @@ def test_fifth_order():
 
     assert fifth_order_attended.shape == q.shape
 
-def test_assert_same():
+@pytest.mark.parametrize('causal', (False, True))
+def test_assert_same(causal):
     from simplicial_attention import nth_order_attend, naive_two_simplicial_attend
 
     q = torch.randn(1, 8, 4, 16)
     k = torch.randn(1, 8, 4, 16)
     v = torch.randn(1, 8, 4, 16)
 
-    naive_out = naive_two_simplicial_attend(q, (k, k), (v, v))
-    nth_order_out = nth_order_attend(q, (k, k), (v, v))
+    naive_out = naive_two_simplicial_attend(q, (k, k), (v, v), causal = causal)
+    nth_order_out = nth_order_attend(q, (k, k), (v, v), causal = causal)
 
     assert torch.allclose(naive_out, nth_order_out, atol = 1e-5)
 
