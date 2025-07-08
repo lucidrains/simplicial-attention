@@ -81,7 +81,7 @@ def nth_order_attend(
     groups = heads // kv_heads
     q = rearrange(q, 'b (h g) i d -> b h g i d', g = groups)
 
-    scale = q.shape[-1] * -0.5
+    scale = q.shape[-1] ** -0.5
 
     q = q * scale
 
@@ -98,6 +98,7 @@ def nth_order_attend(
     similarity_ein_equation = f'... g i d, {similarity_lfs_eq} -> ... g i {similarity_rhs_eq}'
 
     aggregate_ein_equation = f'... g i {similarity_rhs_eq}, {similarity_lfs_eq} -> ... g i d'
+    print(similarity_ein_equation, aggregate_ein_equation)
 
     # nth order attention
 
