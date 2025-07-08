@@ -98,7 +98,7 @@ def nth_order_attend(
 
     # nth order attention
 
-    sim = einsum(q, *keys, similarity_ein_equation)
+    sim = contract(similarity_ein_equation, q, *keys)
 
     packed_sim, packed_shape = pack((sim,), 'b h g i *')
 
@@ -106,6 +106,6 @@ def nth_order_attend(
 
     attn, = unpack(packed_attn, packed_shape, 'b h g i *')
 
-    out = einsum(attn, *values, aggregate_ein_equation)
+    out = contract(aggregate_ein_equation, attn, *values)
 
     return rearrange(out, 'b h g ... -> b (h g) ...')
