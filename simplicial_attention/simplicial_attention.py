@@ -17,13 +17,16 @@ def join(arr, delimiter = ', '):
 # 2-simplicial attention
 
 def naive_two_simplicial_attend(
-    q,  # b h i d
-    k1, # b h j d
-    k2, # b h k d
-    v1, # b h j dv
-    v2, # b h k dv,
+    q: Tensor,                  # b h i d
+    k: tuple[Tensor, Tensor],   # (b h j d,  b h k d)
+    v: tuple[Tensor, Tensor],   # (b h j dv, b h k dv)
     causal = False
 ): # b h i dv
+
+    assert len(k) == len(v) == 2
+
+    k1, k2 = k
+    v1, v2 = v
 
     heads, seq_len, dim, kv_heads, device = *q.shape[1:], k1.shape[1], q.device
 
@@ -61,9 +64,9 @@ def naive_two_simplicial_attend(
 # n-th order attention, for good measure
 
 def nth_order_attend(
-    q,                   # b h i d
-    keys: list[Tensor],  # list[b h jkl... d]
-    values: list[Tensor] # list[b h jkl... dv]
+    q: Tensor,                 # b h i d
+    keys: tuple[Tensor, ...],  # tuple[b h jkl... d]
+    values: tuple[Tensor, ...] # tuple[b h jkl... dv]
 ):  # b h i dv 
 
     assert len(keys) == len(values)

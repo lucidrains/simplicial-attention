@@ -11,10 +11,8 @@ def test_attn(causal):
 
     attended = naive_two_simplicial_attend(
         q,
-        k,
-        k.clone(),
-        v,
-        v.clone(),
+        (k, k),
+        (v, v),
         causal = causal
     )
 
@@ -29,8 +27,8 @@ def test_fifth_order():
 
     fifth_order_attended = nth_order_attend(
         q,
-        [k, k, k, k],
-        [v, v, v, v]
+        (k, k, k, k),
+        (v, v, v, v)
     )
 
     assert fifth_order_attended.shape == q.shape

@@ -1,4 +1,6 @@
 from __future__ import annotations
+from typing import Callable
+from functools import partial
 
 import torch
 from torch.nn import Module, ModuleList, Linear, RMSNorm, Identity
@@ -36,6 +38,7 @@ class HigherOrderAttention(Module):
         qk_rmsnorm = True,            # qk rmsnorm, used in a number of models without issues now. helps with stability
         prenorm = False,              # pre rmsnorm for pre-norm transformer pattern
         postnorm = False,             # post rmsnorm, proven out in alphagenome for even more stability (sandwich norm from some old paper i will find later)
+        attend: Callable | None = None
     ):
         super().__init__()
 
@@ -87,6 +90,14 @@ class HigherOrderAttention(Module):
         self.use_nth_order_attend = kv_sets > 2
         assert not (causal and self.use_nth_order_attend)
 
+        if not exists(attend):
+            attend = naive_two_simplicial_attend if not self.use_nth_order_attend else nth_order_attend
+
+        if causal:
+            attend = partial(attend, causal = causal)
+
+        self.attend = attend
+
         # combine heads out
 
         self.merge_heads = Rearrange('b h n d -> b n (h d)')
@@ -113,15 +124,7 @@ class HigherOrderAttention(Module):
 
         # higher order attention
 
-        if self.use_nth_order_attend:
-            out = nth_order_attend(queries, keys, values)
-        else:
-            out = naive_two_simplicial_attend(
-                queries,
-                *keys,
-                *values,
-                causal = self.causal
-            )
+        out = self.attend(queries, keys, values)
 
         # merge heads and combine with linear out
 
