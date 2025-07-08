@@ -29,3 +29,15 @@ Implementation of [2-simplicial attention](https://arxiv.org/abs/1909.00668) pro
     url     = {https://arxiv.org/abs/1909.00668}, 
 }
 ```
+
+```bibtex
+@article{Peng2024OnLO,
+    title     = {On Limitations of the Transformer Architecture},
+    author    = {Binghui Peng and Srini Narayanan and Christos Papadimitriou},
+    journal   = {ArXiv},
+    year      = {2024},
+    volume    = {abs/2402.08164},
+    url       = {https://api.semanticscholar.org/CorpusID:267636545}
+}
+```
+
