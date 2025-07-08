@@ -25,6 +25,7 @@ classifiers=[
 dependencies = [
     "torch>=2.4",
     "einops>=0.8.1",
+    "hyper-connections>=0.2.1",
     "opt-einsum"
 ]
 
