@@ -34,3 +34,11 @@ def test_fifth_order():
     )
 
     assert fifth_order_attended.shape == q.shape
+
+def test_mha():
+    from simplicial_attention.simplicial_mha import TwoSimplicialMHA
+
+    t = torch.randn(1, 16, 512)
+    attn = TwoSimplicialMHA(dim = 512, causal = True)
+
+    assert attn(t).shape == t.shape
