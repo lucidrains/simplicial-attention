@@ -81,7 +81,7 @@ def nth_order_attend(
     groups = heads // kv_heads
     q = rearrange(q, 'b (h g) i d -> b h g i d', g = groups)
 
-    scale = q.shape[-1] * -0.5
+    scale = q.shape[-1] ** -0.5
 
     q = q * scale
 
