@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import torch
-from torch import nn, Tensor
+from torch import nn, cat, stack, tensor, Tensor
 
 from einops import einsum, rearrange, pack, unpack
 from opt_einsum import contract
@@ -14,13 +14,73 @@ def divisible_by(num, den):
 def join(arr, delimiter = ', '):
     return delimiter.join(arr)
 
+# rotary
+
+def apply_rotation(
+    t: Tensor,
+    rot: Tensor # Float[3, 3]
+):
+    device, dim = t.device, t.shape[-1]
+    dim = dim // 3 * 3
+
+    t, t_rest = t[..., :dim], t[..., dim:]
+    t = rearrange(t, '... (d r) -> ... d r', r = 3)
+    t = t @ rot
+    t = rearrange(t, '... d r -> ... (d r)')
+
+    return cat((t, t_rest), dim = -1)
+
+# signed determinant
+
+def signed_determinant(q, k1, k2):
+    device, dim = q.device, q.shape[-1]
+    dim = dim // 3 * 3
+
+    q, q_rest = q[..., :dim], q[..., dim:]
+    k1, k1_rest = k1[..., :dim], k1[..., dim:]
+    k2, k2_rest = k2[..., :dim], k2[..., dim:]
+
+    has_rest = q_rest.numel() > 0
+
+    # following eq 8.
+    # they use this in place of dot product for similarity in attention
+    # for rotating in positions and keeping invariance
+    # i don't know if all this effort really adds anything, but it is a fun exercise
+
+    k1 = rearrange(k1, '... (d r) -> ... d r', r = 3)
+    k2 = rearrange(k2, '... (d r) -> ... d r', r = 3)
+
+    index1 = tensor([2, 0, 1], device = device)
+    index2 = tensor([1, 2, 0], device = device)
+
+    lq = q
+    rq = q
+    lk1 = torch.index_select(k1, dim = -1, index = index2)
+    rk1 = torch.index_select(k1, dim = -1, index = index1)
+    lk2 = torch.index_select(k2, dim = -1, index = index1)
+    rk2 = torch.index_select(k2, dim = -1, index = index2)
+
+    lk1, rk1, lk2, rk2 = tuple(rearrange(t, '... d r -> ... (d r)') for t in (lk1, rk1, lk2, rk2))
+
+    if has_rest:
+        lq = cat((lq, q_rest), dim = -1)
+        lk1 = cat((lk1, k1_rest), dim = -1)
+        lk2 = cat((lk2, k2_rest), dim = -1)
+
+    lhs = einsum(lq, lk1, lk2, '... g i d, ... j d, ... k d -> ... g i j k')
+
+    rhs = einsum(rq, rk1, rk2, '... g i d, ... j d, ... k d -> ... g i j k')
+
+    return lhs - rhs
+
 # 2-simplicial attention
 
 def naive_two_simplicial_attend(
     q: Tensor,                  # b h i d
     k: tuple[Tensor, Tensor],   # (b h j d,  b h k d)
     v: tuple[Tensor, Tensor],   # (b h j dv, b h k dv)
-    causal = False
+    causal = False,
+    use_signed_determinant = False
 ): # b h i dv
 
     assert len(k) == len(v) == 2
@@ -43,7 +103,10 @@ def naive_two_simplicial_attend(
 
     q = q * scale
 
-    sim = contract('... g i d, ... j d, ... k d -> ... g i j k', q, k1, k2)
+    if use_signed_determinant:
+        sim = signed_determinant(q, k1, k2)
+    else:
+        sim = contract('... g i d, ... j d, ... k d -> ... g i j k', q, k1, k2)
 
     if causal:
         i, j = sim.shape[-2:]
