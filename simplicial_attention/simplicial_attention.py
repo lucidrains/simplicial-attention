@@ -67,9 +67,9 @@ def signed_determinant(q, k1, k2):
         lk1 = cat((lk1, k1_rest), dim = -1)
         lk2 = cat((lk2, k2_rest), dim = -1)
 
-    lhs = einsum(lq, lk1, lk2, '... g i d, ... j d, ... k d -> ... g i j k')
+    lhs = einsum(lq, lk1, lk2, 'b h ... i d, b h j d, b h k d -> b h ... i j k')
 
-    rhs = einsum(rq, rk1, rk2, '... g i d, ... j d, ... k d -> ... g i j k')
+    rhs = einsum(rq, rk1, rk2, 'b h ... i d, b h j d, b h k d -> b h ... i j k')
 
     return lhs - rhs
 

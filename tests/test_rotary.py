@@ -40,20 +40,20 @@ def test_signed_determinant():
 
     R = rot(*torch.randn(3))
 
-    q = torch.randn(1, 8, 1, 4, 7)
-    k = torch.randn(1, 8, 4, 7)
-    v = torch.randn(1, 8, 4, 7)
+    q = torch.randn(1, 8, 4, 7)
+    k1 = torch.randn(1, 8, 4, 7)
+    k2 = torch.randn(1, 8, 4, 7)
 
     rq = apply_rotation(q, R)
-    rk = apply_rotation(k, R)
-    rv = apply_rotation(v, R)
+    rk1 = apply_rotation(k1, R)
+    rk2 = apply_rotation(k2, R)
 
-    sim = einsum(q, k, v, '... i d, ... j d, ... k d -> ... i j k')
-    rsim = einsum(rq, rk, rv, '... i d, ... j d, ... k d -> ... i j k')
+    sim = einsum(q, k1, k2, '... i d, ... j d, ... k d -> ... i j k')
+    rsim = einsum(rq, rk1, rk2, '... i d, ... j d, ... k d -> ... i j k')
 
     assert not torch.allclose(sim, rsim, atol = 1e-5)
 
-    sim = signed_determinant(q, k, v)
-    rsim = signed_determinant(rq, rk, rv)
+    sim = signed_determinant(q, k1, k2)
+    rsim = signed_determinant(rq, rk1, rk2)
 
     assert torch.allclose(sim, rsim, atol = 1e-5)
