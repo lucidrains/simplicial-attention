@@ -26,7 +26,8 @@ dependencies = [
     "torch>=2.4",
     "einops>=0.8.1",
     "hyper-connections>=0.2.1",
-    "opt-einsum"
+    "opt-einsum",
+    "x-mlps-pytorch>=0.0.25"
 ]
 
 [project.urls]
