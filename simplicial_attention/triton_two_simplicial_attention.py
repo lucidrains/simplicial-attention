@@ -14,6 +14,8 @@ from einops import repeat, rearrange, reduce
 # taken from appendix B https://arxiv.org/abs/2507.02754
 
 import triton
+import triton.language as tl
+from triton.language.extra import libdevice
 
 @triton.autotune (
     configs=[
