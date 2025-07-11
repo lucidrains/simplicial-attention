@@ -11,6 +11,34 @@ import torch.nn.functional as F
 
 from einops import repeat, rearrange, reduce
 
+# helper functions
+
+def exists(v):
+    return v is not None
+
+def default(val, d):
+    return val if exists(val) else d
+
+def divisible_by(num, den):
+    return (num % den) == 0
+
+def round_up_multiple(n, mult):
+    return ceil(n / mult) * mult
+
+def pad_at_dim(t, pad: tuple[int, int], *, dim = -1, value = 0.):
+    dims_from_right = (- dim - 1) if dim < 0 else (t.ndim - dim - 1)
+    zeros = ((0, 0) * dims_from_right)
+    return F.pad(t, (*zeros, *pad), value = value)
+
+def pad_to_multiple(t, mult, *, dim):
+    length = t.shape[dim]
+    padded_length = round_up_multiple(length, mult)
+    remainder = padded_length - length
+    return pad_at_dim(t, (0, remainder), dim = dim)
+
+def is_contiguous(x):
+    return x.stride(-1) == 1
+
 # taken from appendix B https://arxiv.org/abs/2507.02754
 
 import triton
@@ -595,3 +623,85 @@ def two_simplicial_attn_bwd_kv2q_kernel(
     tl.store(dK2_ptr + kv2_offs, dk2, kv2_mask)
     tl.store(dV2_ptr + kv2_offs, dv2, kv2_mask)
     tl.store(dQ_ptr + q_offs, dq, q_mask)
+
+# sliding window trilinear attention
+
+from torch.autograd import Function
+
+class SlidingTwoSimplicialAttention(Function):
+
+    @classmethod
+    def forward(
+        self,
+        ctx,
+        q, k1, k2, v1, v2,
+        w1, w2, causal
+    ):
+        dtype = q.dtype
+
+        out = None
+        lse = None
+
+        ctx.save_for_backward(q, k1, k2, v1, v2, out, lse)
+
+        ctx._saved_variables = (w1, w2, causal)
+
+        raise NotImplementedError
+
+    @classmethod
+    def backward(self, ctx, dout):
+        device = dout.device
+
+        (
+            q, k1, k2, v1, v2, out, lse
+        ) = ctx.saved_tensors
+
+        (
+            w1, w2, causal
+        ) = ctx._saved_variables
+
+        do = do.half()
+        do_slide = do_slide.half()
+
+        dq = torch.zeros(q.shape, dtype = torch.float32, device = device)
+        dk1 = torch.zeros(k1.shape, dtype = torch.float32, device = device)
+        dk2 = torch.zeros(k2.shape, dtype = torch.float32, device = device)
+        dv1 = torch.zeros(v1.shape, dtype = torch.float32, device = device)
+        dv2 = torch.zeros(v2.shape, dtype = torch.float32, device = device)
+
+        return dq, dk1, dk2, dv1, dv2, None, None, None, None
+
+_sliding_two_simplicial_attn = SlidingTwoSimplicialAttention.apply
+
+# wrapper function with defaults from paper (w1 = 512, w2 = 32)
+
+# ein notation
+
+# b - batch
+# n - sequence length
+# d - head dimension
+# hq - query heads
+# h - key / value heads
+
+def sliding_two_simplicial_attn(
+    q,   # (b hq n d)
+    k1,  # (b h n d)
+    k2,  # (b h n d)
+    v1,  # (b h n d)
+    v2,  # (b h n d)
+    w1 = 512,
+    w2 = 32,
+    causal = True
+):
+    seq_len = q.shape[-2]
+    q_heads, kv_heads = q.shape[1], k1.shape[1]
+
+    assert divisible_by(q_heads, kv_heads)
+    groups = q_heads // kv_heads
+
+    out = _sliding_two_simplicial_attn(
+        q, k1, k2, v1, v2,
+        w1, w2, causal
+    )
+
+    return out
