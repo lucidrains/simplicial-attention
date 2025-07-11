@@ -38,7 +38,8 @@ class HigherOrderAttention(Module):
         qk_rmsnorm = True,            # qk rmsnorm, used in a number of models without issues now. helps with stability
         prenorm = False,              # pre rmsnorm for pre-norm transformer pattern
         postnorm = False,             # post rmsnorm, proven out in alphagenome for even more stability (sandwich norm from some old paper i will find later)
-        attend: Callable | None = None
+        attend: Callable | None = None,
+        head_first_dim = True
     ):
         super().__init__()
 
@@ -79,8 +80,11 @@ class HigherOrderAttention(Module):
             kv_sets * key_value_heads * dim_head_values     # values
         )
 
-        self.split_q_heads = Rearrange('b n (h d) -> b h n d', h = heads)
-        self.split_kv_heads = Rearrange('b n (h d) -> b h n d', h = key_value_heads)
+        split_heads_eq = 'b n (h d) -> b h n d' if head_first_dim else 'b n (h d) -> b n h d'
+        merge_heads_eq = 'b h n d -> b n (h d)' if head_first_dim else 'b n h d -> b n (h d)'
+
+        self.split_q_heads = Rearrange(split_heads_eq, h = heads)
+        self.split_kv_heads = Rearrange(split_heads_eq, h = key_value_heads)
 
         self.kv_sets = kv_sets
         self.to_qkv = Linear(dim, sum(self.split_dims), bias = False)
@@ -100,7 +104,7 @@ class HigherOrderAttention(Module):
 
         # combine heads out
 
-        self.merge_heads = Rearrange('b h n d -> b n (h d)')
+        self.merge_heads = Rearrange(merge_heads_eq)
         self.combine_heads = Linear(heads * dim_head_values, dim, bias = False)
 
     def forward(

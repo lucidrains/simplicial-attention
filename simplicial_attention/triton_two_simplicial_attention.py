@@ -215,6 +215,7 @@ def two_simplicial_attn_fwd_kernel(
             m_i = m_ij
 
     acc /= l_i[:, None]
+
     acc = tl.where(q_mask, acc, 0.0)
     acc = acc.to(data_dtype)
 
@@ -702,11 +703,9 @@ _sliding_two_simplicial_attn = SlidingTwoSimplicialAttention.apply
 # h - key / value heads
 
 def sliding_two_simplicial_attn(
-    q: Tensor,                      # (b hq n d)
-    keys: tuple[Tensor, Tensor],    # (b h n d)
-    values: tuple[Tensor, Tensor],  # (b h n d)
-    v1,  # (b h n d)
-    v2,  # (b h n d)
+    q: Tensor,                      # (b n hq d)
+    keys: tuple[Tensor, Tensor],    # (b n h d) * 2
+    values: tuple[Tensor, Tensor],  # (b n h d) * 2
     w1 = 512,
     w2 = 32,
     causal = True
@@ -740,12 +739,14 @@ class SlidingWindowTwoSimplicialMHA(HigherOrderAttention):
         **kwargs
     ):
         assert 'number_key_value_sets' not in kwargs
+        assert 'head_first_dim' not in kwargs
 
         attend = partial(sliding_two_simplicial_attn, w1 = w1, w2 = w2, causal = True)
 
         super().__init__(
             *args,
             number_key_value_sets = 2,
+            head_first_dim = False,
             attend = attend,
             **kwargs
         )
