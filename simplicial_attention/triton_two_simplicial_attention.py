@@ -100,7 +100,7 @@ def two_simplicial_attn_fwd_kernel(
     BLOCK_SIZE_Q: tl.constexpr,
     BLOCK_SIZE_KV: tl.constexpr,
     HEAD_DIM: tl.constexpr,
-    INPUT_PRECISION: tl.constexpr,
+    # INPUT_PRECISION: tl.constexpr,
     SM_SCALE: tl.constexpr,
     K2_BIAS: tl.constexpr,
     V2_BIAS: tl.constexpr,
@@ -684,9 +684,9 @@ _sliding_two_simplicial_attn = SlidingTwoSimplicialAttention.apply
 # h - key / value heads
 
 def sliding_two_simplicial_attn(
-    q,   # (b hq n d)
-    k1,  # (b h n d)
-    k2,  # (b h n d)
+    q: Tensor,                      # (b hq n d)
+    keys: tuple[Tensor, Tensor],    # (b h n d)
+    values: tuple[Tensor, Tensor],  # (b h n d)
     v1,  # (b h n d)
     v2,  # (b h n d)
     w1 = 512,
@@ -699,9 +699,35 @@ def sliding_two_simplicial_attn(
     assert divisible_by(q_heads, kv_heads)
     groups = q_heads // kv_heads
 
+    k1, k2 = keys
+    v1, v2 = values
+
     out = _sliding_two_simplicial_attn(
         q, k1, k2, v1, v2,
         w1, w2, causal
     )
 
     return out
+
+# sliding window two simplicial attention
+
+from simplicial_attention.simplicial_mha import HigherOrderAttention
+
+class SlidingWindowTwoSimplicialMHA(HigherOrderAttention):
+    def __init__(
+        self,
+        *args,
+        w1 = 512,
+        w2 = 32,
+        **kwargs
+    ):
+        assert 'number_key_value_sets' not in kwargs
+
+        attend = partial(sliding_two_simplicial_attn, w1 = w1, w2 = w2, causal = True)
+
+        super().__init__(
+            *args,
+            number_key_value_sets = 2,
+            attend = attend,
+            **kwargs
+        )
