@@ -665,7 +665,7 @@ class SlidingTwoSimplicialAttention(Function):
 
         ctx._saved_variables = (w1, w2, causal)
 
-        raise NotImplementedError
+        return q
 
     @classmethod
     def backward(self, ctx, dout):
@@ -710,14 +710,14 @@ def sliding_two_simplicial_attn(
     w2 = 32,
     causal = True
 ):
+    k1, k2 = keys
+    v1, v2 = values
+
     seq_len = q.shape[-2]
     q_heads, kv_heads = q.shape[1], k1.shape[1]
 
     assert divisible_by(q_heads, kv_heads)
     groups = q_heads // kv_heads
-
-    k1, k2 = keys
-    v1, v2 = values
 
     out = _sliding_two_simplicial_attn(
         q, k1, k2, v1, v2,
