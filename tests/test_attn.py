@@ -19,7 +19,7 @@ def test_attn(causal):
     assert attended.shape == q.shape
 
 def test_fifth_order():
-    from simplicial_attention import nth_order_attend
+    from simplicial_attention.simplicial_attention import nth_order_attend
 
     q = torch.randn(1, 8, 4, 16)
     k = torch.randn(1, 8, 4, 16)
@@ -35,7 +35,7 @@ def test_fifth_order():
 
 @pytest.mark.parametrize('causal', (False, True))
 def test_assert_same(causal):
-    from simplicial_attention import nth_order_attend, naive_two_simplicial_attend
+    from simplicial_attention.simplicial_attention import nth_order_attend, naive_two_simplicial_attend
 
     q = torch.randn(1, 8, 4, 16)
     k = torch.randn(1, 8, 4, 16)
