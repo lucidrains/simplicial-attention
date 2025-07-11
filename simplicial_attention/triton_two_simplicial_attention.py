@@ -105,6 +105,7 @@ def two_simplicial_attn_fwd_kernel(
     K2_BIAS: tl.constexpr,
     V2_BIAS: tl.constexpr,
     num_stages: tl.constexpr,
+    IS_CAUSAL: tl.constexpr
 ):
     data_dtype = tl.bfloat16
     compute_dtype = tl.float32
@@ -186,12 +187,13 @@ def two_simplicial_attn_fwd_kernel(
 
             qk_mask = q_mask_s[:, None] & kv2_mask_s[None, :]
 
-            # Mask for q_idx - w1 < kv1_idx <= q_idx and q_idx - w2 < kv2_offs_s <= q_idx
-            kv1_local_mask = ((q_offs_s[:, None] - w1) < kv1_idx) & (kv1_idx <= q_offs_s[:, None])
-            kv2_local_mask = ((q_offs_s[:, None] - w2) < kv2_offs_s[None, :]) & (kv2_offs_s[None, :] < q_offs_s[:, None])
-            qk_mask &= kv1_local_mask & kv2_local_mask
+            if IS_CAUSAL:
+                # Mask for q_idx - w1 < kv1_idx <= q_idx and q_idx - w2 < kv2_offs_s <= q_idx
+                kv1_local_mask = ((q_offs_s[:, None] - w1) < kv1_idx) & (kv1_idx <= q_offs_s[:, None])
+                kv2_local_mask = ((q_offs_s[:, None] - w2) < kv2_offs_s[None, :]) & (kv2_offs_s[None, :] < q_offs_s[:, None])
+                qk_mask &= kv1_local_mask & kv2_local_mask
 
-            qk += tl.where(qk_mask, 0, -1.0e38)
+                qk += tl.where(qk_mask, 0, -1.0e38)
 
             m_ij = tl.maximum(m_i, tl.max(qk, 1))
             p = tl.math.exp(qk - m_ij[:, None])
@@ -295,6 +297,7 @@ def two_simplicial_attn_bwd_kv1_kernel(
     COMPUTE_DQ: tl.constexpr,
     num_stages: tl.constexpr,
     is_flipped: tl.constexpr,
+    IS_CAUSAL: t.constexpr,
 ):
     data_dtype = tl.bfloat16
     compute_dtype = tl.float32
@@ -390,22 +393,29 @@ def two_simplicial_attn_bwd_kv1_kernel(
 
             qkkT = tl.dot(k1k2, qt_tile) * softmax_scale  # [BLOCK_SIZE_KV, BLOCK_SIZE_Q]
 
-            # Mask qkkt to inf
-            kv1_local_mask = ((q_offs_s[None, :] - w1) < kv1_offs_s[:, None]) & (kv1_offs_s[:, None] <= q_offs_s[None, :])
-            kv2_local_mask = ((q_offs_s - w2) < kv2_idx) & (kv2_idx <= q_offs_s)
-            local_mask = kv1_local_mask & kv2_local_mask[None, :]  # [BLOCK_SIZE_KV, BLOCK_SIZE_Q]
+            if IS_CAUSAL:
+                # Mask qkkt to inf
+                kv1_local_mask = ((q_offs_s[None, :] - w1) < kv1_offs_s[:, None]) & (kv1_offs_s[:, None] <= q_offs_s[None, :])
+                kv2_local_mask = ((q_offs_s - w2) < kv2_idx) & (kv2_idx <= q_offs_s)
+                local_mask = kv1_local_mask & kv2_local_mask[None, :]  # [BLOCK_SIZE_KV, BLOCK_SIZE_Q]
 
-            qkkT = tl.where(local_mask, qkkT, -1.0e38)
+                qkkT = tl.where(local_mask, qkkT, -1.0e38)
 
             pT = tl.exp(qkkT - m_tile)  # [BLOCK_SIZE_KV, BLOCK_SIZE_Q]
-            pT = tl.where(local_mask, pT, 0.0)
+
+            if IS_CAUSAL:
+                pT = tl.where(local_mask, pT, 0.0)
 
             do_v2 = do_tile * v2_tile  # [BLOCK_SIZE_Q, HEAD_DIM]
             dv1 += tl.dot(pT.to(gemm_dtype), do_v2.to(gemm_dtype), out_dtype=tl.float32)  # [BLOCK_SIZE_KV, HEAD_DIM]
 
             dpT = tl.dot(v1v2, tl.trans(do_tile.to(gemm_dtype)), out_dtype=tl.float32)  # [BLOCK_SIZE_KV, BLOCK_SIZE_Q]
             dsT = pT * (dpT - d_tile)  # [BLOCK_SIZE_KV, BLOCK_SIZE_Q]
-            dsT = tl.where(local_mask, dsT, 0.0) * softmax_scale
+
+            if IS_CAUSAL:
+                dsT = tl.where(local_mask, dsT, 0.0)
+
+            dsT *= softmax_scale
 
             dk1 += (tl.dot(dsT.to(gemm_dtype), tl.trans(qt_tile), out_dtype=tl.float32) * k2_tile.to(tl.float32))
 
@@ -502,6 +512,7 @@ def two_simplicial_attn_bwd_kv2q_kernel(
     V2_BIAS: tl.constexpr,
     num_stages: tl.constexpr,
     IS_SECOND_PASS: tl.constexpr,
+    IS_CAUSAL: t.constexpr,
 ):
     assert BLOCK_SIZE_KV2 >= BLOCK_SIZE_Q + w2
     data_dtype = tl.bfloat16
@@ -583,15 +594,19 @@ def two_simplicial_attn_bwd_kv2q_kernel(
         qk1_s = qk1_s.to(gemm_dtype)
 
         qkkT = tl.dot(k2_tile, qk1_s.T, out_dtype=tl.float32)  # [KV2, Q]
-        qkT_mask = kv2_mask_s[:, None] & q_mask_s[None, :]  # [KV2, Q]
 
-        kv1_local_mask = ((q_offs_s[None, :] - w1) < kv1_idx) & (kv1_idx <= q_offs_s[None, :])  # [KV2, Q]
-        kv2_local_mask = ((q_offs_s[None, :] - w2) < kv2_offs_s[:, None]) & (kv2_offs_s[:, None] < q_offs_s[None, :])  # [KV2, Q]
-        local_mask = qkT_mask & kv1_local_mask & kv2_local_mask  # [KV2, Q]
+        if IS_CAUSAL:
+            qkT_mask = kv2_mask_s[:, None] & q_mask_s[None, :]  # [KV2, Q]
 
-        qkkT = tl.where(local_mask, qkkT, -1.0e38)
+            kv1_local_mask = ((q_offs_s[None, :] - w1) < kv1_idx) & (kv1_idx <= q_offs_s[None, :])  # [KV2, Q]
+            kv2_local_mask = ((q_offs_s[None, :] - w2) < kv2_offs_s[:, None]) & (kv2_offs_s[:, None] < q_offs_s[None, :])  # [KV2, Q]
+            local_mask = qkT_mask & kv1_local_mask & kv2_local_mask  # [KV2, Q]
+            qkkT = tl.where(local_mask, qkkT, -1.0e38)
+
         pT = tl.exp(qkkT - m_tile[None, :])  # [KV2, Q]
-        pT = tl.where(qkT_mask, pT, 0.0)
+
+        if IS_CAUSAL:
+            pT = tl.where(qkT_mask, pT, 0.0)
 
         do_v1 = do_tile * v1_tile[None, :]  # [Q, D]
         do_v1 = do_v1.to(gemm_dtype)
@@ -601,7 +616,10 @@ def two_simplicial_attn_bwd_kv2q_kernel(
         # v2[KV2, D] @ do_v1.T[D, Q] => dpT[KV2, Q]
         dpT = tl.dot(v2_tile, do_v1.T, out_dtype=tl.float32)
         dsT = pT * (dpT - d_tile[None, :])  # [KV2, Q]
-        dsT = tl.where(qkT_mask, dsT, 0.0)
+
+        if IS_CAUSAL:
+            dsT = tl.where(qkT_mask, dsT, 0.0)
+
         dsT = dsT.to(gemm_dtype)
 
         # dsT[KV2, Q] @ qk1_s[Q, D] => dk2[KV2, D]
