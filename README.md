@@ -6,6 +6,20 @@ Implementation of [2-simplicial attention](https://arxiv.org/abs/1909.00668) pro
 
 [Paper explanation by Gabriel Mongaras](https://www.youtube.com/watch?v=W-0LSbTnbVc)
 
+## Contributing
+
+First install with `pytest`
+
+```shell
+$ pip install '.[test]'
+```
+
+Then add your code and make sure it passes
+
+```shell
+$ pytest tests
+```
+
 ## Citations
 
 ```bibtex
