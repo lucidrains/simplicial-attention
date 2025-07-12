@@ -66,8 +66,16 @@ k2 = torch.randn(2, 1024, 4, 64).cuda()
 v1 = torch.randn(2, 1024, 4, 64).cuda()
 v2 = torch.randn(2, 1024, 4, 64).cuda()
 
+tq = q.detach().clone()
+tk1 = k1.detach().clone()
+tk2 = k2.detach().clone()
+tv1 = v1.detach().clone()
+tv2 = v2.detach().clone()
+
 w1 = 64
 w2 = 32
+
+(q, k1, k2, v1, v2, tq, tk1, tk2, tv1, tv2) = tuple(t.requires_grad_() for t in (q, k1, k2, v1, v2, tq, tk1, tk2, tv1, tv2))
 
 # inefficient way
 
@@ -76,9 +84,9 @@ flex_forward_out = flex_sliding_two_simplicial_attn(q, k1, k2, v1, v2, w1 = w1, 
 # triton kernel
 
 triton_forward_out = sliding_two_simplicial_attn(
-    q,
-    (k1, k2),
-    (v1, v2),
+    tq,
+    (tk1, tk2),
+    (tv1, tv2),
     w1 = w1,
     w2 = w2
 )
@@ -88,4 +96,15 @@ triton_forward_out = sliding_two_simplicial_attn(
 max_diff = (flex_forward_out - triton_forward_out).abs().amax()
 print(f'forward abs diff: {max_diff.item():.3f}')
 
-assert torch.allclose(flex_forward_out, triton_forward_out, atol = 1e-2)
+assert torch.allclose(flex_forward_out, triton_forward_out, atol = 1e-2), 'output not equal'
+
+# backwards
+
+flex_forward_out.sum().backward()
+triton_forward_out.sum().backward()
+
+assert torch.allclose(v1.grad, tv1.grad, atol = 1e-2), 'v1 grad not equal'
+assert torch.allclose(v2.grad, tv2.grad, atol = 1e-2), 'v2 grad not equal'
+assert torch.allclose(k1.grad, tk1.grad, atol = 1e-2), 'k1 grad not equal'
+assert torch.allclose(k2.grad, tk2.grad, atol = 1e-2), 'k2 grad not equal'
+assert torch.allclose(q.grad, tq.grad, atol = 1e-2), 'q grad not equal'

@@ -440,14 +440,13 @@ def backward_preprocess_do_o_dot(
     DO,
     D,
     stride_ob,
-    stride_ok,
-    stride_os,
+    stride_oh,
+    stride_om,
     stride_dob,
-    stride_dok,
-    stride_dos,
+    stride_doh,
+    stride_dom,
     num_heads,
-    seqlen_q,
-    seqlen_q_rounded,
+    seq_len,
     dim,
     BLOCK: tl.constexpr,
     BLOCK_HEADDIM: tl.constexpr,
@@ -464,7 +463,7 @@ def backward_preprocess_do_o_dot(
 
     # load
 
-    seq_mask = offs_m[:, None] < seqlen_q
+    seq_mask = offs_m[:, None] < seq_len
     dim_mask = offs_d[None, :] < dim
     mask = seq_mask & dim_mask
 
@@ -492,7 +491,7 @@ def backward_preprocess_do_o_dot(
 
     # write-back
 
-    tl.store(D + off_hb * seqlen_q_rounded + offs_m, delta)
+    tl.store(D + off_hb * seq_len + offs_m, delta)
 
 @triton.autotune(
     configs=[
@@ -805,8 +804,35 @@ class SlidingTwoSimplicialAttention(Function):
             w1, w2, causal
         ) = ctx._saved_variables
 
-        do = do.half()
-        do_slide = do_slide.half()
+        batch, seq_len, heads, dim = q.shape
+
+        D = torch.empty_like(m)
+
+        BLOCK_HEADDIM = max(triton.next_power_of_2(dim), 16)
+        BLOCK_SIZE_Q = 64
+
+        # get do * o
+
+        grid = lambda META: (triton.cdiv(seq_len, META["BLOCK"]), batch * heads)
+
+        backward_preprocess_do_o_dot[grid](
+            out,
+            dout,
+            D,
+            out.stride(0),
+            out.stride(1),
+            out.stride(2),
+            dout.stride(0),
+            dout.stride(1),
+            dout.stride(2),
+            heads,
+            seq_len,
+            dim,
+            BLOCK = BLOCK_SIZE_Q,
+            BLOCK_HEADDIM = BLOCK_HEADDIM,
+        )
+
+        # setup all d(q|k|v)
 
         dq = torch.zeros(q.shape, dtype = torch.float32, device = device)
         dk1 = torch.zeros(k1.shape, dtype = torch.float32, device = device)
