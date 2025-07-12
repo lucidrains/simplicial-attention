@@ -434,6 +434,66 @@ def two_simplicial_attn_bwd_kv1_kernel(
     tl.store(dV1_ptr + dv1_offs, dv1.to(data_dtype), mask=kv1_mask)
     tl.store(dK1_ptr + dk1_offs, dk1.to(data_dtype), mask=kv1_mask)
 
+@triton.jit
+def backward_preprocess_do_o_dot(
+    O,
+    DO,
+    D,
+    stride_ob,
+    stride_ok,
+    stride_os,
+    stride_dob,
+    stride_dok,
+    stride_dos,
+    num_heads,
+    seqlen_q,
+    seqlen_q_rounded,
+    dim,
+    BLOCK: tl.constexpr,
+    BLOCK_HEADDIM: tl.constexpr,
+):
+    start_m = tl.program_id(0)
+    off_hb = tl.program_id(1)
+    off_b = off_hb // num_heads
+    off_h = off_hb % num_heads
+
+    # initialize offsets
+
+    offs_m = start_m * BLOCK + tl.arange(0, BLOCK)
+    offs_d = tl.arange(0, BLOCK_HEADDIM)
+
+    # load
+
+    seq_mask = offs_m[:, None] < seqlen_q
+    dim_mask = offs_d[None, :] < dim
+    mask = seq_mask & dim_mask
+
+    o = tl.load(
+        O +
+        off_b * stride_ob +
+        off_h * stride_oh +
+        offs_m[:, None] * stride_om +
+        offs_d[None, :],
+        mask = mask,
+        other = 0.0,
+    ).to(tl.float32)
+
+    do = tl.load(
+        DO
+        + off_b * stride_dob
+        + off_h * stride_doh
+        + offs_m[:, None] * stride_dom
+        + offs_d[None, :],
+        mask = mask,
+        other = 0.0,
+    ).to(tl.float32)
+
+    delta = tl.sum(o * do, axis = 1)
+
+    # write-back
+
+    tl.store(D + off_hb * seqlen_q_rounded + offs_m, delta)
+
 @triton.autotune(
     configs=[
         triton.Config(

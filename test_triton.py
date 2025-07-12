@@ -60,11 +60,11 @@ def flex_sliding_two_simplicial_attn(q, k1, k2, v1, v2, w1 = 64, w2 = 32):
 
 # queries, keys, values
 
-q = torch.randn(2, 1024, 4, 32).cuda()
-k1 = torch.randn(2, 1024, 4, 32).cuda()
-k2 = torch.randn(2, 1024, 4, 32).cuda()
-v1 = torch.randn(2, 1024, 4, 32).cuda()
-v2 = torch.randn(2, 1024, 4, 32).cuda()
+q = torch.randn(2, 1024, 4, 64).cuda()
+k1 = torch.randn(2, 1024, 4, 64).cuda()
+k2 = torch.randn(2, 1024, 4, 64).cuda()
+v1 = torch.randn(2, 1024, 4, 64).cuda()
+v2 = torch.randn(2, 1024, 4, 64).cuda()
 
 w1 = 64
 w2 = 32
