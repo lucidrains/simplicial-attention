@@ -181,7 +181,7 @@ def two_simplicial_attn_fwd_kernel(
             qk = tl.dot(
                 qk1 * softmax_scale,
                 k2t_tile,
-                input_precision="132",  # INPUT_PRECISION,
+                # input_precision="132",  # INPUT_PRECISION,
                 out_dtype=tl.float32,
             )  # [BLOCK_SIZE_Q, BLOCK_SIZE_KV]
 
@@ -208,7 +208,7 @@ def two_simplicial_attn_fwd_kernel(
             acc += tl.dot(
                 p.to(gemm_dtype),
                 v12_tile.to(gemm_dtype),
-                input_precision="leee",  # INPUT_PRECISION,
+                # input_precision="leee",  # INPUT_PRECISION,
                 out_dtype=tl.float32,
             )
 
@@ -656,23 +656,89 @@ class SlidingTwoSimplicialAttention(Function):
         q, k1, k2, v1, v2,
         w1, w2, causal
     ):
-        dtype = q.dtype
+        batch, seq_len, heads, dim, dtype, device = *q.shape, q.dtype, q.device
 
-        out = None
-        lse = None
+        # scale
 
-        ctx.save_for_backward(q, k1, k2, v1, v2, out, lse)
+        softmax_scale = dim ** -0.5
+
+        # outputs
+
+        out = torch.empty_like(q)
+        m = torch.empty((batch, heads, seq_len), device = device, dtype = torch.float32)
+
+        # forward kernel
+
+        grid = lambda META: (
+            triton.cdiv(seq_len, META["BLOCK_SIZE_Q"]),
+            batch * heads
+        )
+
+        two_simplicial_attn_fwd_kernel[grid](
+            q,
+            k1,
+            k2,
+            v1,
+            v2,
+            out,
+            m,
+            batch,
+            seq_len,
+            heads,
+            dim,
+            w1,
+            w2,
+            q.stride(0),
+            q.stride(1),
+            q.stride(2),
+            q.stride(3),
+            k1.stride(0),
+            k1.stride(1),
+            k1.stride(2),
+            k1.stride(3),
+            k2.stride(0),
+            k2.stride(1),
+            k2.stride(2),
+            k2.stride(3),
+            v1.stride(0),
+            v1.stride(1),
+            v1.stride(2),
+            v1.stride(3),
+            v2.stride(0),
+            v2.stride(1),
+            v2.stride(2),
+            v2.stride(3),
+            out.stride(0),
+            out.stride(1),
+            out.stride(2),
+            out.stride(3),
+            m.stride(0),
+            m.stride(1),
+            m.stride(2),
+            # BLOCK_SIZE_Q: tl.constexpr,
+            # BLOCK_SIZE_KV: tl.constexpr,
+            # HEAD_DIM: tl.constexpr,
+            # INPUT_PRECISION: tl.constexpr,
+            SM_SCALE = softmax_scale,
+            K2_BIAS = 0.,
+            V2_BIAS = 0.,
+            IS_CAUSAL = causal
+        )
+
+        # saving for backwards
+
+        ctx.save_for_backward(q, k1, k2, v1, v2, out, m)
 
         ctx._saved_variables = (w1, w2, causal)
 
-        return q
+        return out
 
     @classmethod
     def backward(self, ctx, dout):
         device = dout.device
 
         (
-            q, k1, k2, v1, v2, out, lse
+            q, k1, k2, v1, v2, out, m
         ) = ctx.saved_tensors
 
         (
