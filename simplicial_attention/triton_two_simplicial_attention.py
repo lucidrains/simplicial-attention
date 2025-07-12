@@ -228,6 +228,75 @@ def two_simplicial_attn_fwd_kernel(
     tl.store(M_ptr + m_offs, m, mask=m_mask)
 
 @triton.jit
+def backward_preprocess_do_o_dot(
+    O,
+    DO,
+    D,
+    stride_ob,
+    stride_oh,
+    stride_om,
+    stride_dob,
+    stride_doh,
+    stride_dom,
+    num_heads,
+    seq_len,
+    dim,
+    BLOCK: tl.constexpr,
+    BLOCK_HEADDIM: tl.constexpr,
+):
+    start_m = tl.program_id(0)
+    off_hb = tl.program_id(1)
+    off_b = off_hb // num_heads
+    off_h = off_hb % num_heads
+
+    # initialize offsets
+
+    offs_m = start_m * BLOCK + tl.arange(0, BLOCK)
+    offs_d = tl.arange(0, BLOCK_HEADDIM)
+
+    # load
+
+    seq_mask = offs_m[:, None] < seq_len
+    dim_mask = offs_d[None, :] < dim
+    mask = seq_mask & dim_mask
+
+    o = tl.load(
+        O +
+        off_b * stride_ob +
+        off_h * stride_oh +
+        offs_m[:, None] * stride_om +
+        offs_d[None, :],
+        mask = mask,
+        other = 0.0,
+    ).to(tl.float32)
+
+    do = tl.load(
+        DO
+        + off_b * stride_dob
+        + off_h * stride_doh
+        + offs_m[:, None] * stride_dom
+        + offs_d[None, :],
+        mask = mask,
+        other = 0.0,
+    ).to(tl.float32)
+
+    delta = tl.sum(o * do, axis = 1)
+
+    # write-back
+
+    tl.store(D + off_hb * seq_len + offs_m, delta)
+
+@triton.autotune (
+    configs=[
+        triton.Config(
+            {"BLOCK_SIZE_Q": 64, "BLOCK_SIZE_KV": 32, "HEAD_DIM": 64},
+            num_stages=1,
+            num_warps=4,
+        ),
+    ],
+    key=["HEAD_DIM"],
+)
+@triton.jit
 def two_simplicial_attn_bwd_kv1_kernel(
     Q_ptr,  # [b, s, k, h]
     K1_ptr,  # [b, s, k, h]
@@ -298,7 +367,7 @@ def two_simplicial_attn_bwd_kv1_kernel(
     COMPUTE_DQ: tl.constexpr,
     num_stages: tl.constexpr,
     is_flipped: tl.constexpr,
-    IS_CAUSAL: t.constexpr,
+    IS_CAUSAL: tl.constexpr,
 ):
     data_dtype = tl.bfloat16
     compute_dtype = tl.float32
@@ -434,65 +503,6 @@ def two_simplicial_attn_bwd_kv1_kernel(
     tl.store(dV1_ptr + dv1_offs, dv1.to(data_dtype), mask=kv1_mask)
     tl.store(dK1_ptr + dk1_offs, dk1.to(data_dtype), mask=kv1_mask)
 
-@triton.jit
-def backward_preprocess_do_o_dot(
-    O,
-    DO,
-    D,
-    stride_ob,
-    stride_oh,
-    stride_om,
-    stride_dob,
-    stride_doh,
-    stride_dom,
-    num_heads,
-    seq_len,
-    dim,
-    BLOCK: tl.constexpr,
-    BLOCK_HEADDIM: tl.constexpr,
-):
-    start_m = tl.program_id(0)
-    off_hb = tl.program_id(1)
-    off_b = off_hb // num_heads
-    off_h = off_hb % num_heads
-
-    # initialize offsets
-
-    offs_m = start_m * BLOCK + tl.arange(0, BLOCK)
-    offs_d = tl.arange(0, BLOCK_HEADDIM)
-
-    # load
-
-    seq_mask = offs_m[:, None] < seq_len
-    dim_mask = offs_d[None, :] < dim
-    mask = seq_mask & dim_mask
-
-    o = tl.load(
-        O +
-        off_b * stride_ob +
-        off_h * stride_oh +
-        offs_m[:, None] * stride_om +
-        offs_d[None, :],
-        mask = mask,
-        other = 0.0,
-    ).to(tl.float32)
-
-    do = tl.load(
-        DO
-        + off_b * stride_dob
-        + off_h * stride_doh
-        + offs_m[:, None] * stride_dom
-        + offs_d[None, :],
-        mask = mask,
-        other = 0.0,
-    ).to(tl.float32)
-
-    delta = tl.sum(o * do, axis = 1)
-
-    # write-back
-
-    tl.store(D + off_hb * seq_len + offs_m, delta)
-
 @triton.autotune(
     configs=[
         triton.Config(
@@ -572,7 +582,7 @@ def two_simplicial_attn_bwd_kv2q_kernel(
     V2_BIAS: tl.constexpr,
     num_stages: tl.constexpr,
     IS_SECOND_PASS: tl.constexpr,
-    IS_CAUSAL: t.constexpr,
+    IS_CAUSAL: tl.constexpr,
 ):
     assert BLOCK_SIZE_KV2 >= BLOCK_SIZE_Q + w2
     data_dtype = tl.bfloat16
@@ -788,7 +798,7 @@ class SlidingTwoSimplicialAttention(Function):
 
         ctx.save_for_backward(q, k1, k2, v1, v2, out, m)
 
-        ctx._saved_variables = (w1, w2, causal)
+        ctx._saved_variables = (w1, w2, softmax_scale, causal)
 
         return out
 
@@ -801,12 +811,12 @@ class SlidingTwoSimplicialAttention(Function):
         ) = ctx.saved_tensors
 
         (
-            w1, w2, causal
+            w1, w2, softmax_scale, causal
         ) = ctx._saved_variables
 
         batch, seq_len, heads, dim = q.shape
 
-        D = torch.empty_like(m)
+        delta = torch.empty_like(m)
 
         BLOCK_HEADDIM = max(triton.next_power_of_2(dim), 16)
         BLOCK_SIZE_Q = 64
@@ -818,7 +828,7 @@ class SlidingTwoSimplicialAttention(Function):
         backward_preprocess_do_o_dot[grid](
             out,
             dout,
-            D,
+            delta,
             out.stride(0),
             out.stride(1),
             out.stride(2),
@@ -839,6 +849,153 @@ class SlidingTwoSimplicialAttention(Function):
         dk2 = torch.zeros(k2.shape, dtype = torch.float32, device = device)
         dv1 = torch.zeros(v1.shape, dtype = torch.float32, device = device)
         dv2 = torch.zeros(v2.shape, dtype = torch.float32, device = device)
+
+        # call kernels
+
+        grid = lambda META: (
+            triton.cdiv(seq_len, META["BLOCK_SIZE_Q"]),
+            batch * heads
+        )
+
+        # k1 and v1
+
+        two_simplicial_attn_bwd_kv1_kernel[grid](
+            q,
+            k1,
+            k2,
+            v1,
+            v2,
+            dout,
+            m,
+            delta,
+            dq,
+            dk1,
+            dk2,
+            batch,
+            seq_len,
+            heads,
+            dim,
+            w1,
+            w2,
+            q.stride(0),
+            q.stride(1),
+            q.stride(2),
+            q.stride(3),
+            k1.stride(0),
+            k1.stride(1),
+            k1.stride(2),
+            k1.stride(3),
+            k2.stride(0),
+            k2.stride(1),
+            k2.stride(2),
+            k2.stride(3),
+            v1.stride(0),
+            v1.stride(1),
+            v1.stride(2),
+            v1.stride(3),
+            v2.stride(0),
+            v2.stride(1),
+            v2.stride(2),
+            v2.stride(3),
+            dout.stride(0),
+            dout.stride(1),
+            dout.stride(2),
+            dout.stride(3),
+            m.stride(0),
+            m.stride(1),
+            m.stride(2),
+            delta.stride(0),
+            delta.stride(1),
+            delta.stride(2),
+            dq.stride(0),
+            dq.stride(1),
+            dq.stride(2),
+            dq.stride(3),
+            dk1.stride(0),
+            dk1.stride(1),
+            dk1.stride(2),
+            dk1.stride(3),
+            dv1.stride(0),
+            dv1.stride(1),
+            dv1.stride(2),
+            dv1.stride(3),
+            SM_SCALE = softmax_scale,
+            K2_BIAS = 0.,
+            V2_BIAS = 0.,
+            COMPUTE_DQ = True,
+            is_flipped = False,
+            IS_CAUSAL = True
+        )
+
+        # k2 and v2
+
+        for is_second_pass in (False, True):
+            two_simplicial_attn_bwd_kv2q_kernel[grid](
+                q,
+                k1,
+                k2,
+                v1,
+                v2,
+                dout,
+                m,
+                delta,
+                dq,
+                dk2,
+                dv2,
+                batch,
+                seq_len,
+                heads,
+                dim,
+                w1,
+                w2,
+                q.stride(0),
+                q.stride(1),
+                q.stride(2),
+                q.stride(3),
+                k1.stride(0),
+                k1.stride(1),
+                k1.stride(2),
+                k1.stride(3),
+                k2.stride(0),
+                k2.stride(1),
+                k2.stride(2),
+                k2.stride(3),
+                v1.stride(0),
+                v1.stride(1),
+                v1.stride(2),
+                v1.stride(3),
+                v2.stride(0),
+                v2.stride(1),
+                v2.stride(2),
+                v2.stride(3),
+                dout.stride(0),
+                dout.stride(1),
+                dout.stride(2),
+                dout.stride(3),
+                m.stride(0),
+                m.stride(1),
+                m.stride(2),
+                delta.stride(0),
+                delta.stride(1),
+                delta.stride(2),
+                dq.stride(0),
+                dq.stride(1),
+                dq.stride(2),
+                dq.stride(3),
+                dk2.stride(0),
+                dk2.stride(1),
+                dk2.stride(2),
+                dk2.stride(3),
+                dv2.stride(0),
+                dv2.stride(1),
+                dv2.stride(2),
+                dv2.stride(3),
+                SM_SCALE = softmax_scale,
+                K2_BIAS = 0.,
+                V2_BIAS = 0.,
+                IS_SECOND_PASS = is_second_pass,
+                IS_CAUSAL = True,
+            )
 
         return dq, dk1, dk2, dv1, dv2, None, None, None, None
 
