@@ -48,7 +48,7 @@ from triton.language.extra import libdevice
 @triton.autotune (
     configs=[
         triton.Config(
-            {"BLOCK_SIZE_Q": 32, "BLOCK_SIZE_KV": 32, "HEAD_DIM": 64},
+            {"BLOCK_SIZE_Q": 64, "BLOCK_SIZE_KV": 32, "HEAD_DIM": 64},
             num_stages=1,
             num_warps=4,
         ),
@@ -669,7 +669,7 @@ def two_simplicial_attn_bwd_kv2q_kernel(
             qkT_mask = kv2_mask_s[:, None] & q_mask_s[None, :]  # [KV2, Q]
 
             kv1_local_mask = ((q_offs_s[None, :] - w1) < kv1_idx) & (kv1_idx <= q_offs_s[None, :])  # [KV2, Q]
-            kv2_local_mask = ((q_offs_s[None, :] - w2) < kv2_offs_s[:, None]) & (kv2_offs_s[:, None] < q_offs_s[None, :])  # [KV2, Q]
+            kv2_local_mask = ((q_offs_s[None, :] - w2) < kv2_offs_s[:, None]) & (kv2_offs_s[:, None] <= q_offs_s[None, :])  # [KV2, Q]
             local_mask = qkT_mask & kv1_local_mask & kv2_local_mask  # [KV2, Q]
             qkkT = tl.where(local_mask, qkkT, -1.0e38)
 
