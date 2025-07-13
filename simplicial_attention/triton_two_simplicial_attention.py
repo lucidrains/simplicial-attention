@@ -288,7 +288,7 @@ def backward_preprocess_do_o_dot(
 @triton.autotune (
     configs=[
         triton.Config(
-            {"BLOCK_SIZE_Q": 64, "BLOCK_SIZE_KV": 32, "HEAD_DIM": 64},
+            {"BLOCK_SIZE_Q": 32, "BLOCK_SIZE_KV": 32, "HEAD_DIM": 64}, # BLOCK_SIZE_Q was 64 before, but was bugged
             num_stages=1,
             num_warps=4,
         ),
@@ -490,7 +490,7 @@ def two_simplicial_attn_bwd_kv1_kernel(
 
             if COMPUTE_DQ:
                 dsT = dsT.to(gemm_dtype)
-                dq += (tl.dot(tl.trans(dsT), k1k2, out_dtype=tl.float32) * softmax_scale)  # [BLOCK_SIZE_Q, HEAD_DIM]
+                dq += (tl.dot(tl.trans(dsT), k1k2, out_dtype=tl.float32))  # [BLOCK_SIZE_Q, HEAD_DIM] - note: softmax_scale removed, think it was reapplied again erroneously
 
                 dq_offs = (q_offs_s[:, None] * dq_stride_s + qkv_offs_h[None, :] * dq_stride_h)
                 tl.atomic_add(
