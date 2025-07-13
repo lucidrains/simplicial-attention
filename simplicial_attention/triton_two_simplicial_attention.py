@@ -48,7 +48,7 @@ from triton.language.extra import libdevice
 @triton.autotune (
     configs=[
         triton.Config(
-            {"BLOCK_SIZE_Q": 64, "BLOCK_SIZE_KV": 32, "HEAD_DIM": 64},
+            {"BLOCK_SIZE_Q": 32, "BLOCK_SIZE_KV": 32, "HEAD_DIM": 64},
             num_stages=1,
             num_warps=4,
         ),
@@ -139,7 +139,7 @@ def two_simplicial_attn_fwd_kernel(
     qkv_mask_h = qkv_offs_h < head_dim
 
     q_offs = q_offs_s[:, None] * q_stride_s + qkv_offs_h[None, :] * q_stride_h
-    q_mask = q_mask_s[:, None] & (qkv_mask_h[None, :])
+    q_mask = q_mask_s[:, None] & qkv_mask_h[None, :]
 
     q_tile = tl.load(Q_ptr + q_offs, mask=q_mask).to(compute_dtype)  # [BLOCK_SIZE_Q, HEAD_DIM]
 
@@ -190,7 +190,7 @@ def two_simplicial_attn_fwd_kernel(
             if IS_CAUSAL:
                 # Mask for q_idx - w1 < kv1_idx <= q_idx and q_idx - w2 < kv2_offs_s <= q_idx
                 kv1_local_mask = ((q_offs_s[:, None] - w1) < kv1_idx) & (kv1_idx <= q_offs_s[:, None])
-                kv2_local_mask = ((q_offs_s[:, None] - w2) < kv2_offs_s[None, :]) & (kv2_offs_s[None, :] < q_offs_s[:, None])
+                kv2_local_mask = ((q_offs_s[:, None] - w2) < kv2_offs_s[None, :]) & (kv2_offs_s[None, :] <= q_offs_s[:, None])
                 qk_mask &= kv1_local_mask & kv2_local_mask
 
                 qk += tl.where(qk_mask, 0, -1.0e38)
