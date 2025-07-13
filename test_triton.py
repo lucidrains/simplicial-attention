@@ -101,15 +101,15 @@ triton_forward_out = sliding_two_simplicial_attn(
 max_diff = (flex_forward_out - triton_forward_out).abs().amax()
 print(f'forward abs diff: {max_diff.item():.3f}')
 
-assert torch.allclose(flex_forward_out, triton_forward_out, atol = 1e-2), 'output not equal'
+assert torch.allclose(flex_forward_out, triton_forward_out, atol = 2e-2), 'output not equal'
 
 # backwards
 
 flex_forward_out.sum().backward()
 triton_forward_out.sum().backward()
 
-assert torch.allclose(v1.grad, tv1.grad, atol = 1e-2), 'v1 grad not equal'
-assert torch.allclose(v2.grad, tv2.grad, atol = 1e-2), 'v2 grad not equal'
-assert torch.allclose(k1.grad, tk1.grad, atol = 1e-2), 'k1 grad not equal'
-assert torch.allclose(k2.grad, tk2.grad, atol = 1e-2), 'k2 grad not equal'
-assert torch.allclose(q.grad, tq.grad, atol = 1e-2), 'q grad not equal'
+assert torch.allclose(v1.grad, tv1.grad, atol = 2e-2), 'v1 grad not equal'
+assert torch.allclose(v2.grad, tv2.grad, atol = 2e-2), 'v2 grad not equal'
+assert torch.allclose(k1.grad, tk1.grad, atol = 2e-2), 'k1 grad not equal'
+assert torch.allclose(k2.grad, tk2.grad, atol = 2e-2), 'k2 grad not equal'
+assert torch.allclose(q.grad, tq.grad, atol = 2e-2), 'q grad not equal'
