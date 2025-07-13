@@ -21,7 +21,7 @@ def test_tridirectional_attend(has_mask):
     if has_mask:
         mask1 = torch.randint(0, 2, (1, 4)).bool()
         mask2 = torch.randint(0, 2, (1, 8)).bool()
-        mask3 = torch.randint(0, 2, (1, 3)).bool()
+        mask3 = None
 
     o1, o2, o3 = tri_directional_attend(
         qk1, v1,
@@ -35,7 +35,8 @@ def test_tridirectional_attend(has_mask):
     assert o3.shape == qk3.shape
 
 
-def test_nthdirectional_attend():
+@pytest.mark.parametrize('has_mask', (False, True))
+def test_nthdirectional_attend(has_mask):
 
     from simplicial_attention.nth_directional_attn import nth_directional_attend
 
@@ -51,11 +52,21 @@ def test_nthdirectional_attend():
     qk4 = torch.randn(1, 2, 7, 32)
     v4 = torch.randn(1, 2, 7, 32)
 
+    masks = None
+    if has_mask:
+        masks = (
+            torch.randint(0, 2, (1, 4)).bool(),
+            torch.randint(0, 2, (1, 8)).bool(),
+            None,
+            torch.randint(0, 2, (1, 7)).bool(),
+        )
+
     o1, o2, o3, o4 = nth_directional_attend(
         (qk1, v1),
         (qk2, v2),
         (qk3, v3),
-        (qk4, v4)
+        (qk4, v4),
+        masks = masks
     )
 
     assert o1.shape == qk1.shape

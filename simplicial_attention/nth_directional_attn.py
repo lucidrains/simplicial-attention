@@ -42,18 +42,18 @@ def tri_directional_attend(
 
     if any([exists(m) for m in (mask1, mask2, mask3)]):
 
-        def create_mask_like(qk):
+        def create_mask_for(qk):
             batch, _, seq_len, _ = qk.shape
             return torch.ones((batch, seq_len), device = qk.device, dtype = torch.bool)
 
         if not exists(mask1):
-            mask1 = create_mask_like(qk1)
+            mask1 = create_mask_for(qk1)
 
         if not exists(mask2):
-            mask2 = create_mask_like(qk2)
+            mask2 = create_mask_for(qk2)
 
         if not exists(mask3):
-            mask3 = create_mask_like(qk3)
+            mask3 = create_mask_for(qk3)
 
         mask = rearrange(mask1, 'b i -> b i 1 1') & rearrange(mask2, 'b j -> b 1 j 1') & rearrange(mask3, 'b k -> b 1 1 k')
 
@@ -97,7 +97,8 @@ def tri_directional_attend(
     return tuple(outputs)
 
 def nth_directional_attend(
-    *qkvs, # ((b h s d), (b h s dv)) * num modalities
+    *qkvs,       # ((b h i d), (b h i dv)) * num modalities
+    masks = None # (b i) * num_modalities
 ):
     num_modalities = len(qkvs)
 
@@ -127,6 +128,29 @@ def nth_directional_attend(
     # similarity
 
     sim = einsum(*queries_keys, similarity_ein_equation)
+
+    # maybe mask
+
+    def create_mask_for(qk):
+        batch, _, seq_len, _ = qk.shape
+        return torch.ones((batch, seq_len), device = qk.device, dtype = torch.bool)
+
+    if exists(masks):
+
+        acc_mask = None
+
+        for mask, (qk, _) in zip(masks, qkvs):
+
+            if not exists(mask):
+                mask = create_mask_for(qk)
+
+            if not exists(acc_mask):
+                acc_mask = mask
+                continue
+
+            acc_mask = acc_mask[..., None] & mask[..., None, :]
+
+        sim = sim.masked_fill(~acc_mask, -torch.finfo(sim.dtype).max)
 
     # scale
 
