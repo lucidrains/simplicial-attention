@@ -233,11 +233,11 @@ def backward_preprocess_do_o_dot(
     DO,
     D,
     stride_ob,
-    stride_oh,
     stride_om,
+    stride_oh,
     stride_dob,
-    stride_doh,
     stride_dom,
+    stride_doh,
     num_heads,
     seq_len,
     dim,
@@ -254,6 +254,9 @@ def backward_preprocess_do_o_dot(
     offs_m = start_m * BLOCK + tl.arange(0, BLOCK)
     offs_d = tl.arange(0, BLOCK_HEADDIM)
 
+    O += off_b * stride_ob + off_h * stride_oh
+    DO += off_b * stride_dob + off_h * stride_doh
+
     # load
 
     seq_mask = offs_m[:, None] < seq_len
@@ -262,8 +265,6 @@ def backward_preprocess_do_o_dot(
 
     o = tl.load(
         O +
-        off_b * stride_ob +
-        off_h * stride_oh +
         offs_m[:, None] * stride_om +
         offs_d[None, :],
         mask = mask,
@@ -272,8 +273,6 @@ def backward_preprocess_do_o_dot(
 
     do = tl.load(
         DO
-        + off_b * stride_dob
-        + off_h * stride_doh
         + offs_m[:, None] * stride_dom
         + offs_d[None, :],
         mask = mask,
@@ -727,6 +726,8 @@ class SlidingTwoSimplicialAttention(Function):
     ):
         batch, seq_len, heads, dim, dtype, device = *q.shape, q.dtype, q.device
 
+        q, k1, k2, v1, v2 = tuple(t.contiguous() if not is_contiguous(t) else t for t in (q, k1, k2, v1, v2))
+
         # scale
 
         softmax_scale = dim ** -0.5
@@ -806,6 +807,9 @@ class SlidingTwoSimplicialAttention(Function):
     def backward(self, ctx, dout):
         device = dout.device
 
+        if not is_contiguous(dout):
+            dout = dout.contiguous()
+
         (
             q, k1, k2, v1, v2, out, m
         ) = ctx.saved_tensors
@@ -824,7 +828,7 @@ class SlidingTwoSimplicialAttention(Function):
         # get do * o
 
         grid = lambda META: (triton.cdiv(seq_len, META["BLOCK"]), batch * heads)
-
+    
         backward_preprocess_do_o_dot[grid](
             out,
             dout,
@@ -924,7 +928,7 @@ class SlidingTwoSimplicialAttention(Function):
             V2_BIAS = 0.,
             COMPUTE_DQ = True,
             is_flipped = False,
-            IS_CAUSAL = True
+            IS_CAUSAL = causal
         )
 
         # k2 and v2
@@ -994,7 +998,7 @@ class SlidingTwoSimplicialAttention(Function):
                 K2_BIAS = 0.,
                 V2_BIAS = 0.,
                 IS_SECOND_PASS = is_second_pass,
-                IS_CAUSAL = True,
+                IS_CAUSAL = causal,
             )
 
         return dq, dk1, dk2, dv1, dv2, None, None, None, None
