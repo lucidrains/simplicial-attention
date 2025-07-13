@@ -5,6 +5,9 @@ from einops import einsum, rearrange
 
 # functions
 
+def exists(v):
+    return v is not None
+
 def join(arr, delimiter = ', '):
     return delimiter.join(arr)
 
@@ -16,13 +19,16 @@ def join(arr, delimiter = ', '):
 # https://www.youtube.com/watch?v=Dykkubb-Qus
 
 def tri_directional_attend(
-    qk1, # (b, h, s, d)
-    v1,  # (b, h, s, dv)
-    qk2, # (b, h, t, d)
-    v2,  # (b, h, t, dv)
-    qk3, # (b, h, r, d)
-    v3,  # (b, h, r, dv)
-): # (b h s dv), (b h t dv), (b h r dv)
+    qk1, # (b, h, i, d)
+    v1,  # (b, h, i, dv)
+    qk2, # (b, h, j, d)
+    v2,  # (b, h, j, dv)
+    qk3, # (b, h, k, d)
+    v3,  # (b, h, k, dv)
+    mask1 = None,  # (b, i)
+    mask2 = None,  # (b, j)
+    mask3 = None,  # (b, k)
+): # (b h i dv), (b h j dv), (b h k dv)
 
     device = qk1.device
 
@@ -31,6 +37,29 @@ def tri_directional_attend(
     sim = einsum(qk1, qk2, qk3, '... i d, ... j d, ... k d -> ... i j k')
 
     sim = sim * scale
+
+    # maybe mask
+
+    if any([exists(m) for m in (mask1, mask2, mask3)]):
+
+        def create_mask_like(qk):
+            batch, _, seq_len, _ = qk.shape
+            return torch.ones((batch, seq_len), device = qk.device, dtype = torch.bool)
+
+        if not exists(mask1):
+            mask1 = create_mask_like(qk1)
+
+        if not exists(mask2):
+            mask2 = create_mask_like(qk2)
+
+        if not exists(mask3):
+            mask3 = create_mask_like(qk3)
+
+        mask = rearrange(mask1, 'b i -> b i 1 1') & rearrange(mask2, 'b j -> b 1 j 1') & rearrange(mask3, 'b k -> b 1 1 k')
+
+        sim = sim.masked_fill(~mask, -torch.finfo(sim.dtype).max)
+
+    # values
 
     values = [v1, v2, v3]
 
