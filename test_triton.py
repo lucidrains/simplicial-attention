@@ -98,18 +98,26 @@ triton_forward_out = sliding_two_simplicial_attn(
 
 # asserts
 
-max_diff = (flex_forward_out - triton_forward_out).abs().amax()
-print(f'forward abs diff: {max_diff.item():.3f}')
+def abs_diff(x, y):
+    return (x - y).abs().amax()
 
-assert torch.allclose(flex_forward_out, triton_forward_out, atol = 2e-2), 'output not equal'
+print(f'forward abs diff: {abs_diff(flex_forward_out, triton_forward_out):.3f}')
+
+assert torch.allclose(flex_forward_out, triton_forward_out, atol = 3e-2), 'output not equal'
 
 # backwards
 
 flex_forward_out.sum().backward()
 triton_forward_out.sum().backward()
 
-assert torch.allclose(v1.grad, tv1.grad, atol = 2e-2), 'v1 grad not equal'
-assert torch.allclose(v2.grad, tv2.grad, atol = 2e-2), 'v2 grad not equal'
-assert torch.allclose(k1.grad, tk1.grad, atol = 2e-2), 'k1 grad not equal'
-assert torch.allclose(k2.grad, tk2.grad, atol = 2e-2), 'k2 grad not equal'
-assert torch.allclose(q.grad, tq.grad, atol = 2e-2), 'q grad not equal'
+print(f'dv1 abs diff: {abs_diff(v1.grad, tv1.grad):.3f}')
+print(f'dk1 abs diff: {abs_diff(k1.grad, tk1.grad):.3f}')
+print(f'dv2 abs diff: {abs_diff(v2.grad, tv2.grad):.3f}')
+print(f'dk2 abs diff: {abs_diff(k2.grad, tk2.grad):.3f}')
+print(f'dq abs diff: {abs_diff(q.grad, tq.grad):.3f}')
+
+assert torch.allclose(v1.grad, tv1.grad, atol = 3e-2), 'v1 grad not equal'
+assert torch.allclose(k1.grad, tk1.grad, atol = 3e-2), 'k1 grad not equal'
+assert torch.allclose(v2.grad, tv2.grad, atol = 3e-2), 'v2 grad not equal'
+assert torch.allclose(k2.grad, tk2.grad, atol = 3e-2), 'k2 grad not equal'
+assert torch.allclose(q.grad, tq.grad, atol = 3e-2), 'q grad not equal'

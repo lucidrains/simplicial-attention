@@ -874,7 +874,7 @@ class SlidingTwoSimplicialAttention(Function):
             delta,
             dq,
             dk1,
-            dk2,
+            dv1,
             batch,
             seq_len,
             heads,
