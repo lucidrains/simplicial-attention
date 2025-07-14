@@ -62,7 +62,7 @@ def flex_sliding_two_simplicial_attn(q, k1, k2, v1, v2, w1 = 64, w2 = 32, causal
 # queries, keys, values
 
 causal = True
-seq_len = 128
+seq_len = 32
 
 q = torch.randn(2, seq_len, 4, 64).cuda()
 k1 = torch.randn(2, seq_len, 4, 64).cuda()

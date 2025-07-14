@@ -474,7 +474,7 @@ def two_simplicial_attn_bwd_kv1_kernel(
 
             if IS_CAUSAL:
                 pT = tl.where(local_mask, pT, 0.0)
-
+        
             do_v2 = do_tile * v2_tile  # [BLOCK_SIZE_Q, HEAD_DIM]
             dv1 += tl.dot(pT.to(gemm_dtype), do_v2.to(gemm_dtype), out_dtype=tl.float32)  # [BLOCK_SIZE_KV, HEAD_DIM]
 
@@ -1021,7 +1021,8 @@ def sliding_two_simplicial_attn(
     values: tuple[Tensor, Tensor],  # (b n h d) * 2
     w1 = 512,
     w2 = 32,
-    causal = True
+    causal = True,
+    pad_to_multiple_of = 64 # figure out masking within kernel later
 ):
     k1, k2 = keys
     v1, v2 = values
@@ -1032,10 +1033,19 @@ def sliding_two_simplicial_attn(
     assert divisible_by(q_heads, kv_heads)
     groups = q_heads // kv_heads
 
+    should_pad = exists(pad_to_multiple_of) and pad_to_multiple_of > 0
+
+    if should_pad:
+        orig_seq_len = q.shape[1]
+        q, k1, k2, v1, v2 = tuple(pad_to_multiple(t, pad_to_multiple_of, dim = 1) for t in (q, k1, k2, v1, v2))
+
     out = _sliding_two_simplicial_attn(
         q, k1, k2, v1, v2,
         w1, w2, causal
     )
+
+    if should_pad:
+        out = out[:, :orig_seq_len]
 
     return out
 
