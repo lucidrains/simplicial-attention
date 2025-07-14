@@ -726,6 +726,8 @@ class SlidingTwoSimplicialAttention(Function):
     ):
         batch, seq_len, heads, dim, dtype, device = *q.shape, q.dtype, q.device
 
+        assert all([t.is_cuda for t in (q, k1, k2, v1, v2)]), f'for now, only cuda + triton support'
+
         q, k1, k2, v1, v2 = tuple(t.contiguous() if not is_contiguous(t) else t for t in (q, k1, k2, v1, v2))
 
         # scale

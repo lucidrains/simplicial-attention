@@ -1,10 +1,33 @@
 <img src="./fig2.png" width="400px"></img>
 
-## Simplicial Attention - (wip)
+## Simplicial Attention
 
 Implementation of [2-simplicial attention](https://arxiv.org/abs/1909.00668) proposed by Clift et al. (2019) and the recent attempt to make practical in [Fast and Simplex](https://arxiv.org/abs/2507.02754), Roy et al. (2025)
 
 [Paper explanation by Gabriel Mongaras](https://www.youtube.com/watch?v=W-0LSbTnbVc)
+
+## Install
+
+```shell
+$ pip install simplicial-attention
+```
+
+## Usage
+
+```python
+import torch
+from simplicial_attention.triton_two_simplicial_attention import SlidingWindowTwoSimplicialMHA
+
+higher_order_attn = SlidingWindowTwoSimplicialMHA(
+    dim = 512,
+    dim_head = 64,
+    heads = 8
+).cuda()
+
+tokens = torch.randn(2, 1024, 512).cuda()
+
+assert higher_order_attn(tokens).shape == tokens.shape
+```
 
 ## Contributing
 
