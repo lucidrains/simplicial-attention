@@ -29,6 +29,14 @@ tokens = torch.randn(2, 1024, 512).cuda()
 assert higher_order_attn(tokens).shape == tokens.shape
 ```
 
+## Example
+
+Enwik8, every 2 layers
+
+```shell
+$ pip install '.[examples]' && python train.py
+```
+
 ## Contributing
 
 First install with `pytest`
