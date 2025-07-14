@@ -35,7 +35,11 @@ Homepage = "https://pypi.org/project/simplicial-attention/"
 Repository = "https://github.com/lucidrains/simplicial-attention"
 
 [project.optional-dependencies]
-examples = []
+
+examples = [
+    "tqdm
+]
+
 test = [
     "pytest"
 ]
