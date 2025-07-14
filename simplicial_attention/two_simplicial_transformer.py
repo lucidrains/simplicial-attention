@@ -33,6 +33,7 @@ class Attention(Module):
         self.heads = heads
         dim_inner = heads * dim_head
 
+        self.prenorm = nn.RMSNorm(dim)
         self.to_qkv = nn.Linear(dim, dim_inner * 3, bias = False)
         self.to_out = nn.Linear(dim_inner, dim, bias = False)
 
@@ -40,6 +41,8 @@ class Attention(Module):
         self,
         x
     ):
+        x = self.prenorm(x)
+
         q, k, v = rearrange(self.to_qkv(x), 'b n (qkv h d) -> qkv b h n d', qkv = 3, h = self.heads)
 
         # attention branch
@@ -96,6 +99,7 @@ class TwoSimplicialTransformer(Module):
                     dim = dim,
                     heads = heads,
                     dim_head = dim_head,
+                    prenorm = True,
                     **two_simplicial_attn_kwargs
                 )
             else:

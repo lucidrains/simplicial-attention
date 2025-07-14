@@ -97,8 +97,8 @@ def tri_directional_attend(
     return tuple(outputs)
 
 def nth_directional_attend(
-    *qkvs,       # ((b h i d), (b h i dv)) * num modalities
-    masks = None # (b i) * num_modalities
+    *qkvs,        # ((b h i d), (b h i dv)) * num modalities
+    masks = None, # (b i) * num_modalities
 ):
     num_modalities = len(qkvs)
 
