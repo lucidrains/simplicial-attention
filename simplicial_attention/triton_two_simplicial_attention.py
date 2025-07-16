@@ -1026,8 +1026,12 @@ def sliding_two_simplicial_attn(
     causal = True,
     pad_to_multiple_of = 64 # figure out masking within kernel later
 ):
-    k1, k2 = keys
-    v1, v2 = values
+    q_heads, k_heads = q.shape[-2], keys[0].shape[-2]
+    assert divisible_by(q_heads, k_heads)
+    groups = q_heads // k_heads
+
+    k1, k2 = tuple(repeat(t, '... h d -> ... (h g) d', g = groups) for t in keys)
+    v1, v2 = tuple(repeat(t, '... h d -> ... (h g) d', g = groups) for t in values)
 
     seq_len = q.shape[-2]
     q_heads, kv_heads = q.shape[1], k1.shape[1]
