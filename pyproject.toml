@@ -1,6 +1,6 @@
 [project]
 name = "simplicial-attention"
-version = "0.1.4"
+version = "0.1.5"
 description = "(2) - Simplicial Attention"
 authors = [
     { name = "Phil Wang", email = "lucidrains@gmail.com" }
