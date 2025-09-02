@@ -6,6 +6,10 @@ Implementation of [2-simplicial attention](https://arxiv.org/abs/1909.00668) pro
 
 [Paper explanation by Gabriel Mongaras](https://www.youtube.com/watch?v=W-0LSbTnbVc)
 
+## Appreciation
+
+- [Tejas](https://github.com/meltq) for finding my error in the Triton backwards kernel!
+
 ## Install
 
 ```shell

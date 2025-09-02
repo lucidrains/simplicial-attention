@@ -288,7 +288,7 @@ def backward_preprocess_do_o_dot(
 @triton.autotune (
     configs=[
         triton.Config(
-            {"BLOCK_SIZE_Q": 32, "BLOCK_SIZE_KV": 32, "HEAD_DIM": 64}, # BLOCK_SIZE_Q was 64 before, but was bugged
+            {"BLOCK_SIZE_Q": 64, "BLOCK_SIZE_KV": 32, "HEAD_DIM": 64},
             num_stages=1,
             num_warps=4,
         ),
@@ -858,14 +858,14 @@ class SlidingTwoSimplicialAttention(Function):
 
         # call kernels
 
-        grid = lambda META: (
-            triton.cdiv(seq_len, META["BLOCK_SIZE_Q"]),
+        grid_kv1 = lambda META: (
+            triton.cdiv(seq_len, META["BLOCK_SIZE_KV"]),
             batch * heads
         )
 
         # k1 and v1
 
-        two_simplicial_attn_bwd_kv1_kernel[grid](
+        two_simplicial_attn_bwd_kv1_kernel[grid_kv1](
             q,
             k1,
             k2,
@@ -936,7 +936,12 @@ class SlidingTwoSimplicialAttention(Function):
         # k2 and v2
 
         for is_second_pass in (False, True):
-            two_simplicial_attn_bwd_kv2q_kernel[grid](
+            grid_kv2 = lambda META: (
+                triton.cdiv(seq_len, META["BLOCK_SIZE_Q"]),
+                batch * heads
+            )
+
+            two_simplicial_attn_bwd_kv2q_kernel[grid_kv2](
                 q,
                 k1,
                 k2,
